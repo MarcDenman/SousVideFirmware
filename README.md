@@ -13,3 +13,4 @@ Spark Core Sous Vide Machine
 - [ ] Set Temp (Spark Variable) (Setpoint)
 - [ ] Post start time (Persistence)
 - [ ] Post all other detail s(Persistence)
+- [ ] Create a series of error codes etc. 1 = success, 2 = failure etc.
