@@ -21,15 +21,17 @@ static DS1820Sensor sensor;
 // ***********************************
 // Global Definitions
 // ***********************************
-char cTemp[10];                         //Convert float to String for posting 
-volatile long onTime = 0;
+//char cTemp[10];                       // Convert float to String for posting 
+bool PIDActive = false;                 // Is PID Active
+bool RelayUsable = true;                // Allows the relay to be overidden so can completely shut everything down! #SAFETY
+double cTemp;                           // Stores the current temp.
 
 // ***********************************
 // PID Variables and constants
 // ***********************************
 
 //Define Variables we'll be connecting to
-double Setpoint = 50;
+double Setpoint;
 double Input;
 double Output;
 
@@ -52,13 +54,29 @@ PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 // This routine runs only once upon reset
 void setup() {
+
+// ***********************************
+// Spark Functions
+// ***********************************
+    Spark.function("SetSetPt", SetSetPoint);
+    Spark.function("TogglePID", TogglePID);
+    Spark.function("ToggleRelayU", ToggleRelayU);
+    //SET Ki, Kp, Kd
+    //Set RelayActive
+    
+// ***********************************
+// Spark Variables
+// ***********************************
+    Spark.variable("GetSetPt", &Setpoint, DOUBLE);
+    Spark.variable("GetCTemp", &cTemp, DOUBLE);         //MAKE A FUNCTION. GetCurrentTemp does not work if PID is on.
+    Spark.variable("GetRelay", &RelayUsable, INT);
+    Spark.variable("GetPIDAct", &PIDActive, INT);
     
     windowStartTime = millis();
 
     pinMode(RELAY_PIN, OUTPUT);
-    digitalWrite(RELAY_PIN, HIGH);       //Ensure the relay is turned off to begin with.
+    if(RelayUsable)digitalWrite(RELAY_PIN, LOW);       //Ensure the relay is turned off to begin with.
     
-	Serial.begin(9600);
 	delay(1000);
 	
 	myPID.SetTunings(Kp, Ki, Kd);
@@ -68,52 +86,112 @@ void setup() {
 	
 	myPID.SetMode(AUTOMATIC);
 }
-// This routine gets called repeatedly, like once every 5-15 milliseconds.
-// Spark firmware interleaves background CPU activity associated with WiFi + Cloud activity with your code. 
-// Make sure none of your code delays or blocks for too long (like more than 5 seconds), or weird things can happen.
-void loop() {
+
+
+void loop() 
+{
     
-    //windowStartTime = millis();
+    if(PIDActive)
+    {
+        DoWork();
+    }
+    delay(1000);
+}
+
+
+void DoWork()
+{
     
-    //windowStartTime = millis();
-    updateSensor();
-    Input = sensor.GetTemp()/1000000;
+    Input = GetCurrentTemp();
 	delay(1000);  // Wait for 1 second in off mode
-    //getTemp();
     myPID.Compute();
     now = millis();
     
     
-     if(now - windowStartTime>WindowSize)
-    { //time to shift the Relay Window
+    if(now - windowStartTime>WindowSize)
+    { 
         windowStartTime += WindowSize;
-        Serial.println("New WIndow");
     }
 
-    //double test = (double)(now - windowStartTime);
-     if(Output > now - windowStartTime)
-     {
-         digitalWrite(RELAY_PIN,HIGH);
-     }
+    if(Output > now - windowStartTime)
+    {
+        if(RelayUsable)digitalWrite(RELAY_PIN,HIGH);
+    }
     else 
     {
-        digitalWrite(RELAY_PIN,LOW);
-        Serial.println(now - windowStartTime);
-        Serial.println((String)Output + "O");
+        if(RelayUsable)digitalWrite(RELAY_PIN,LOW);
+    }
+}
+
+//Gets the current temprature of the probe. Used to set the input
+double GetCurrentTemp()
+{
+    updateSensor();
+    cTemp = sensor.GetTemp()/1000000;
+    return cTemp;
+}
+
+//Sets the target temprature(in Degrees) also used as the Setpoint for the PID. Used for Spark.Function "SetSetPt";
+//FUTURE - Allow the addition of time to be added, 0 = no time, 16:00 means go at 16:00 or whatever in UNIX time.
+int SetSetPoint(String args)
+{   
+    //To-Do
+    //Error checking - if Input = Args and Active = true then return 1 else return 2? Worthwhile?
+    Setpoint = atof(args.c_str());
+    TogglePID("ON");
+    
+    if(RelayUsable)
+    {
+        return 1;
+    }
+    else
+    {
+        return 2;
     }
     
-    //Serial.println(windowStartTime);
-    //Serial.println((String)Input + "I");
-    //Serial.println((String)Output + "O");
-    //Serial.println(now);
-    delay(1000);
-    //Serial.println((String)windowStartTime + "W");*/
-    
-}           
+}
 
+//Allows PID to be turned on or off
+int TogglePID(String args)
+{
+    if(args == "ON")
+    {
+        PIDActive = true;
+        return 1;
+    }
+    else if(args == "OFF")
+    {
+        PIDActive = false;
+        if(RelayUsable)digitalWrite(RELAY_PIN,LOW);
+        return 2;
+    }
+    else
+    {
+        return -1;
+    }
+}
 
-
-
+//Allows the relay not to be used. Kill switch. Refactor into TogglePID?
+//Is it needed at all? Seems like a good idea, at the same not sure if it acutally does anything that TogglePID doesn't do apart from allow relay to be turned on without PID which I don't know is useful!
+int ToggleRelayU(String args)
+{
+    if(args == "ON")
+    {
+        RelayUsable = true;
+        digitalWrite(RELAY_PIN,HIGH);
+        return 1;
+    }
+    else if(args == "OFF")
+    {
+        RelayUsable = false;
+        digitalWrite(RELAY_PIN,LOW);
+        return 2;
+    }
+    else
+    {
+        return -1;
+    }
+}
 
 int updateSensor() 
 {
@@ -154,9 +232,39 @@ int updateSensor()
   return 1;
 }
 
- void getTemp()
- {
-            long tempd =sensor.GetTemp();
-            sprintf(cTemp, "%ld", tempd);
-            Serial.println(cTemp);
- }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
