@@ -31,9 +31,9 @@ double cTemp;                           // Stores the current temp.
 // ***********************************
 
 //Define Variables we'll be connecting to
-double Setpoint;
-double Input;
-double Output;
+double Setpoint;                        //Target temprature
+double Input;                           //Current Temprature
+double Output;                          //How much needs to be output to make Input match setpoint. Effectively this decides if the relay is on or off. 
 
 // pid tuning parameters
 double Kp = 0.1;                              //http://www.over-engineered.com/projects/sous-vide-pid-controller/
@@ -61,8 +61,7 @@ void setup() {
     Spark.function("SetSetPt", SetSetPoint);
     Spark.function("TogglePID", TogglePID);
     Spark.function("ToggleRelayU", ToggleRelayU);
-    //SET Ki, Kp, Kd
-    //Set RelayActive
+    Spark.function("SetTunings", SetTunings);
     
 // ***********************************
 // Spark Variables
@@ -72,13 +71,24 @@ void setup() {
     Spark.variable("GetRelay", &RelayUsable, INT);
     Spark.variable("GetPIDAct", &PIDActive, INT);
     
-    windowStartTime = millis();
+    Spark.variable("GetKp", &Kp, DOUBLE);
+    Spark.variable("GetKi", &Ki, DOUBLE);
+    Spark.variable("GetKd", &Kd, DOUBLE);
+    
+// ***********************************
+// Relay setup
+// ***********************************
 
     pinMode(RELAY_PIN, OUTPUT);
     if(RelayUsable)digitalWrite(RELAY_PIN, LOW);       //Ensure the relay is turned off to begin with.
-    
 	delay(1000);
-	
+    
+// ***********************************
+// PID Setup
+// ***********************************
+    
+    windowStartTime = millis();
+
 	myPID.SetTunings(Kp, Ki, Kd);
 	
 	myPID.SetSampleTime(1000);
@@ -91,6 +101,8 @@ void setup() {
 void loop() 
 {
     
+    GetCurrentTemp();                                //Allows the temprature to be read, even when PID/Relay isn't enabled. Doesn't "smell" right. I would prefer it to be called by a Spark Function.
+    
     if(PIDActive)
     {
         DoWork();
@@ -102,7 +114,7 @@ void loop()
 void DoWork()
 {
     
-    Input = GetCurrentTemp();
+    Input = cTemp;
 	delay(1000);  // Wait for 1 second in off mode
     myPID.Compute();
     now = millis();
@@ -123,12 +135,35 @@ void DoWork()
     }
 }
 
-//Gets the current temprature of the probe. Used to set the input
+//Gets the current temprature of the probe. Again doesn't really smell right, not a get. More of an update the sensor, assign that to cTemp and then return cTemp. Not as catchy though.
 double GetCurrentTemp()
 {
     updateSensor();
     cTemp = sensor.GetTemp()/1000000;
     return cTemp;
+}
+
+int SetTunings(String command)                 //Aquired from https://github.com/plan44/messagetorch/blob/master/messagetorch.cpp
+{                                              //Would quite like for JSON to be passed in and read, however seems a bit OTT. For another day perhaps.
+     int p = 0;
+    while (p<(int)command.length()) 
+    {
+        int i = command.indexOf(',',p);
+        if (i<0) i = command.length();
+        int j = command.indexOf('=',p);
+        if (j<0) break;
+        String key = command.substring(p,j);
+        String value = command.substring(j+1,i);
+        double val = atof(value.c_str());
+        if(key=="Kp")
+            Kp = val;
+        if(key=="Ki")
+            Ki = val;
+        if(key=="Kd")
+            Kd = val;
+        p = i + 1;
+    }
+    return (int)(Kp + Ki + Kd);
 }
 
 //Sets the target temprature(in Degrees) also used as the Setpoint for the PID. Used for Spark.Function "SetSetPt";
@@ -172,7 +207,7 @@ int TogglePID(String args)
 }
 
 //Allows the relay not to be used. Kill switch. Refactor into TogglePID?
-//Is it needed at all? Seems like a good idea, at the same not sure if it acutally does anything that TogglePID doesn't do apart from allow relay to be turned on without PID which I don't know is useful!
+//Is it needed at all? Seemsed like a good idea, at the same not sure if it acutally does anything that TogglePID doesn't do apart from allow relay to be turned on without PID which I don't know is useful!
 int ToggleRelayU(String args)
 {
     if(args == "ON")
