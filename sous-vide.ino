@@ -27,9 +27,9 @@ static DS1820Sensor sensor;
 // ***********************************
 // Global Definitions
 // ***********************************
-//char cTemp[10];                       // Convert float to String for posting 
+
 bool PIDActive = false;                 // Is PID Active
-bool RelayUsable = true;                // Allows the relay to be overidden so can completely shut everything down! #SAFETY
+bool RelayUsable = false;                // Allows the relay to be overidden so can completely shut everything down! #SAFETY
 double cTemp;                           // Stores the current temp.
 
 TCPClient client;                       //Used for sending posting details, temp etc.
@@ -72,7 +72,6 @@ void setup() {
 // ***********************************
     Spark.function("SetSetPt", SetSetPoint);
     Spark.function("TogglePID", TogglePID);
-    Spark.function("ToggleRelayU", ToggleRelayU);
     Spark.function("SetTunings", SetTunings);
     
 // ***********************************
@@ -151,9 +150,9 @@ void xivelyTemp() {
         client.print("      \"version\" : \"1.0.0\",");
         client.print("      \"datastreams\" : [");
         client.print("        {");
-        client.print("          \"id\" : \"CurrentTemp\",");
+        client.print("          \"id\" : \"CurrentTemp\",");    //Feed or channel to be updated by put command.
         client.print("          \"current_value\" : \"");
-        client.print(cTemp); //adjustment for some weird reason..
+        client.print(cTemp);                        //Value to be put on the Xively server
         client.print("\"");
         client.print("        }");
         client.print("      ]");
@@ -253,34 +252,14 @@ int TogglePID(String args)
     if(args == "ON")
     {
         PIDActive = true;
+        RelayUsable = true;
         return 1;
     }
     else if(args == "OFF")
     {
         PIDActive = false;
         if(RelayUsable)digitalWrite(RELAY_PIN,LOW);
-        return 2;
-    }
-    else
-    {
-        return -1;
-    }
-}
-
-//Allows the relay not to be used. Kill switch. Refactor into TogglePID?
-//Is it needed at all? Seemed like a good idea, at the same not sure if it acutally does anything that TogglePID doesn't do apart from allow relay to be turned on without PID which I don't know is useful!
-int ToggleRelayU(String args)
-{
-    if(args == "ON")
-    {
-        RelayUsable = true;
-        digitalWrite(RELAY_PIN,HIGH);
-        return 1;
-    }
-    else if(args == "OFF")
-    {
         RelayUsable = false;
-        digitalWrite(RELAY_PIN,LOW);
         return 2;
     }
     else
