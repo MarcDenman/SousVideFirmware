@@ -12,6 +12,12 @@
 #define RELAY_PIN D0                    //Pin to control relay
 
 // ***********************************
+// Defining Xively  ID's
+//  ***********************************
+#define FEED_ID "FAKE"
+#define XIVELY_API_KEY "FAKE"
+
+// ***********************************
 // Sensor Vairables and Constants
 // plugged into D6
 // ***********************************
@@ -25,6 +31,9 @@ static DS1820Sensor sensor;
 bool PIDActive = false;                 // Is PID Active
 bool RelayUsable = true;                // Allows the relay to be overidden so can completely shut everything down! #SAFETY
 double cTemp;                           // Stores the current temp.
+
+TCPClient client;                       //Used for sending posting details, temp etc.
+unsigned long LastSyncTime = 0;         //Keeps count of the last time the temp was sent to the cloud(Syncs ever 30 secs). Should prob rename.
 
 // ***********************************
 // PID Variables and constants
@@ -45,11 +54,14 @@ int WindowSize = 10000;
 unsigned long windowStartTime;
 unsigned long now;
 
+
 //Specify the links and initial tuning parameters
 //Input = Current Temp of the SousVide machine 
 //Output = ?
 //Setpoint = Target Temp
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+
 
 
 // This routine runs only once upon reset
@@ -95,6 +107,9 @@ void setup() {
 	myPID.SetOutputLimits(0, WindowSize);
 	
 	myPID.SetMode(AUTOMATIC);
+	
+	
+	Serial.begin(9600);
 }
 
 
@@ -103,11 +118,57 @@ void loop()
     
     GetCurrentTemp();                                //Allows the temprature to be read, even when PID/Relay isn't enabled. Doesn't "smell" right. I would prefer it to be called by a Spark Function.
     
-    if(PIDActive)
+    if(PIDActive)                                    //If PID has been turned on then allow do work
     {
         DoWork();
     }
     delay(1000);
+
+    if (millis()-LastSyncTime>1000*30)               //Sync the current temp with xively.
+    {
+        xivelyTemp();
+        LastSyncTime = millis();
+     }
+
+}
+
+void xivelyTemp() {
+
+    if (client.connect("api.xively.com", 8081)) 
+    {
+        // Connection succesful, update datastreams
+        client.print("{");
+        client.print("  \"method\" : \"put\",");
+        client.print("  \"resource\" : \"/feeds/");
+        client.print(FEED_ID);
+        client.print("\",");
+        client.print("  \"params\" : {},");
+        client.print("  \"headers\" : {\"X-ApiKey\":\"");
+        client.print(XIVELY_API_KEY);
+        client.print("\"},");
+        client.print("  \"body\" :");
+        client.print("    {");
+        client.print("      \"version\" : \"1.0.0\",");
+        client.print("      \"datastreams\" : [");
+        client.print("        {");
+        client.print("          \"id\" : \"CurrentTemp\",");
+        client.print("          \"current_value\" : \"");
+        client.print(cTemp); //adjustment for some weird reason..
+        client.print("\"");
+        client.print("        }");
+        client.print("      ]");
+        client.print("    },");
+        client.print("  \"token\" : \"0x123abc\"");
+        client.print("}");
+        client.println();
+    } 
+    else 
+    {
+    }
+    
+    client.flush();
+    delay(1000);
+    client.stop();
 }
 
 
@@ -139,7 +200,7 @@ void DoWork()
 double GetCurrentTemp()
 {
     updateSensor();
-    cTemp = sensor.GetTemp()/1000000;
+    cTemp = sensor.GetTemp()/1000000.0;
     return cTemp;
 }
 
@@ -207,7 +268,7 @@ int TogglePID(String args)
 }
 
 //Allows the relay not to be used. Kill switch. Refactor into TogglePID?
-//Is it needed at all? Seemsed like a good idea, at the same not sure if it acutally does anything that TogglePID doesn't do apart from allow relay to be turned on without PID which I don't know is useful!
+//Is it needed at all? Seemed like a good idea, at the same not sure if it acutally does anything that TogglePID doesn't do apart from allow relay to be turned on without PID which I don't know is useful!
 int ToggleRelayU(String args)
 {
     if(args == "ON")
