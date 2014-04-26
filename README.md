@@ -1,18 +1,17 @@
 SousVideFirmware
 ================
 
-Spark Core Sous Vide Machine
+[Spark Core](http://spark.io) powered slow cooker!
 
-## To Do
+Brief write up [HERE](http://www.marcdenman.co.uk/2014/04/26/Spark-Sous-Vide/) in a *little* more detail. 
 
-- [ ] Remove SprintF ([https://community.spark.io/t/firmware-tips-and-tricks/3649/2](https://community.spark.io/t/firmware-tips-and-tricks/3649/2 "Details Here"))
-- [ ] Remotely set Kp, Ki, Kd tuning parameters (Spark Function) 
-- [ ] Start PID (Spark Function) (Convert TurnOff()? 1 = on, 0 = off) Refactor digitalWrite out of TurnOff
-- [ ] Control Relay (Spark Variable (Bool)) (Directly Control Relay - Low, High)(Any point?)
-- [ ] Accuracy (At least 1dp)
-- [x] Set TargetTemp(SetPoint) - SetSetPoint(String Args) - Automatically turns on PID when set.
-- [ ] Set Sous Vide to begin cooking at set-time.
-- [ ] Log start time (Persistence)
-- [ ] Post all other detail s(Persistence)
-- [ ] Create a series of error codes etc. 1 = success, 2 = failure etc.
-- [ ] ALL DigitalWrites to relay MUST go through RelayActive first.
+## Future Features
+ 
+- Set Machine to heat up water for separate time
+- Logging of details (spin-off into separate project)
+  - Start Time
+  - Current Temperature
+  - Relay Status?
+  - SetPoint?
+- Nice error codes for Spark Function Variables so behaviour can be checked. 
+- Relay control independent of PID? 

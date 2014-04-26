@@ -8,48 +8,46 @@
 // ***********************************
 // Pin Definitions
 // ***********************************
-#define ONE_WIRE_PIN D6                 //Pin for DS1820 sensor
-#define RELAY_PIN D0                    //Pin to control relay
+#define ONE_WIRE_PIN D6                             //Pin for DS1820 sensor
+#define RELAY_PIN D0                                //Pin to control relay
 
 // ***********************************
 // Defining Xively  ID's
 //  ***********************************
-#define FEED_ID "FAKE"
-#define XIVELY_API_KEY "FAKE"
+#define FEED_ID "FAKE_SHORT_NO"
+#define XIVELY_API_KEY "FAKE_LONG_NO"
 
 // ***********************************
 // Sensor Vairables and Constants
 // plugged into D6
 // ***********************************
-static OneWire oneWire(ONE_WIRE_PIN);   // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+static OneWire oneWire(ONE_WIRE_PIN);               // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 static DS1820Sensor sensor;
 
 // ***********************************
 // Global Definitions
 // ***********************************
+bool PIDActive = false;                             // Is PID Controller Active?
+bool RelayUsable = false;                           // Allows the relay to be overridden so can completely shut everything down! #SAFETY
+double cTemp =0 ;                                   // Stores the current temp. Refactor cTemp into Input? Seems completely pointless having exactly the same data.
 
-bool PIDActive = false;                 // Is PID Active
-bool RelayUsable = false;                // Allows the relay to be overidden so can completely shut everything down! #SAFETY
-double cTemp;                           // Stores the current temp.
-
-TCPClient client;                       //Used for sending posting details, temp etc.
-unsigned long LastSyncTime = 0;         //Keeps count of the last time the temp was sent to the cloud(Syncs ever 30 secs). Should prob rename.
+TCPClient client;                                   //Used for sending posting details, temp etc.
+unsigned long LastSyncTime = 0;                     //Keeps count of the last time the temp was sent to the cloud (syncs every 30 secs).
 
 // ***********************************
 // PID Variables and constants
 // ***********************************
 
-//Define Variables we'll be connecting to
-double Setpoint;                        //Target temprature
-double Input;                           //Current Temprature
-double Output;                          //How much needs to be output to make Input match setpoint. Effectively this decides if the relay is on or off. 
+double Setpoint = 0;                                //Target temperature - Set to zero so GetSetPt can be called from the cloud before it is set.
+double Input = 0;                                   //Current Temperature
+double Output;                                      //How much needs to be output to make Input match SetPoint. Effectively this decides if the relay is on or off. 
 
-// pid tuning parameters
-double Kp = 0.1;                              //http://www.over-engineered.com/projects/sous-vide-pid-controller/
-double Ki = 150;                              //
-double Kd = 0.45;                             //
+// PID Tuning parameters
+double Kp = 0.1;                                    //http://www.over-engineered.com/projects/sous-vide-pid-controller/
+double Ki = 150;                                    //
+double Kd = 0.45;                                   //
 
-// 10 second Time Proportional Output window
+// 10 second Time Proportional Output window. Checks what the PID should do every 10 seconds.
 int WindowSize = 10000; 
 unsigned long windowStartTime;
 unsigned long now;
@@ -57,14 +55,11 @@ unsigned long now;
 
 //Specify the links and initial tuning parameters
 //Input = Current Temp of the SousVide machine 
-//Output = ?
+//Output = On or off the relay. Is actually a double and if under 1000 then relay turned off.
 //Setpoint = Target Temp
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 
-
-
-// This routine runs only once upon reset
 void setup() {
 
 // ***********************************
@@ -77,12 +72,12 @@ void setup() {
 // ***********************************
 // Spark Variables
 // ***********************************
-    Spark.variable("GetSetPt", &Setpoint, DOUBLE);
-    Spark.variable("GetCTemp", &cTemp, DOUBLE);         //MAKE A FUNCTION. GetCurrentTemp does not work if PID is on.
+    Spark.variable("GetSetPt", &Setpoint, DOUBLE);  
+    Spark.variable("GetCTemp", &cTemp, DOUBLE);         
     Spark.variable("GetRelay", &RelayUsable, INT);
     Spark.variable("GetPIDAct", &PIDActive, INT);
     
-    Spark.variable("GetKp", &Kp, DOUBLE);
+    Spark.variable("GetKp", &Kp, DOUBLE);           //This could probably be made into one variable returning Kp, Ki, Kd as a one nice big string
     Spark.variable("GetKi", &Ki, DOUBLE);
     Spark.variable("GetKd", &Kd, DOUBLE);
     
@@ -91,7 +86,7 @@ void setup() {
 // ***********************************
 
     pinMode(RELAY_PIN, OUTPUT);
-    if(RelayUsable)digitalWrite(RELAY_PIN, LOW);       //Ensure the relay is turned off to begin with.
+    if(RelayUsable)digitalWrite(RELAY_PIN, LOW);    //Ensure the relay is turned off to begin with.
 	delay(1000);
     
 // ***********************************
@@ -102,28 +97,26 @@ void setup() {
 
 	myPID.SetTunings(Kp, Ki, Kd);
 	
-	myPID.SetSampleTime(1000);
+	myPID.SetSampleTime(1000);                      //95% certain I don't need this line. Don't want to check that theory though as cooker is con.
 	myPID.SetOutputLimits(0, WindowSize);
 	
 	myPID.SetMode(AUTOMATIC);
-	
-	
-	Serial.begin(9600);
 }
 
 
 void loop() 
 {
+                                                     //REMEMBER - ALL DigitalWrites to relay MUST go through RelayActive first.
+    GetCurrentTemp();                                //Allows the temperature to be read, even when PID/Relay isn't enabled. Doesn't "smell" right. I would prefer it to be called by a Spark Function otherwise it is updating every second when no-one really cares.
     
-    GetCurrentTemp();                                //Allows the temprature to be read, even when PID/Relay isn't enabled. Doesn't "smell" right. I would prefer it to be called by a Spark Function.
-    
-    if(PIDActive)                                    //If PID has been turned on then allow do work
+    if(PIDActive)                                    //If PID has been turned on then allow do work and to control relay.
     {
         DoWork();
     }
+    
     delay(1000);
 
-    if (millis()-LastSyncTime>1000*30)               //Sync the current temp with xively.
+    if (millis()-LastSyncTime>1000*30)               //Sync the current temp with Xively.
     {
         xivelyTemp();
         LastSyncTime = millis();
@@ -152,7 +145,7 @@ void xivelyTemp() {
         client.print("        {");
         client.print("          \"id\" : \"CurrentTemp\",");    //Feed or channel to be updated by put command.
         client.print("          \"current_value\" : \"");
-        client.print(cTemp);                        //Value to be put on the Xively server
+        client.print(cTemp);                                    //Value to be put on the Xively server
         client.print("\"");
         client.print("        }");
         client.print("      ]");
@@ -166,7 +159,7 @@ void xivelyTemp() {
     }
     
     client.flush();
-    delay(1000);
+    delay(2000);                                     //Stop connection being closed before everything has been sent. Stupid crappy router.
     client.stop();
 }
 
@@ -175,7 +168,7 @@ void DoWork()
 {
     
     Input = cTemp;
-	delay(1000);  // Wait for 1 second in off mode
+	delay(1000); 
     myPID.Compute();
     now = millis();
     
@@ -195,7 +188,7 @@ void DoWork()
     }
 }
 
-//Gets the current temprature of the probe. Again doesn't really smell right, not a get. More of an update the sensor, assign that to cTemp and then return cTemp. Not as catchy though.
+//Gets the current temperature of the probe. Again doesn't really smell right, not a get. More of an update the sensor, assign that to cTemp and then return cTemp. Not as catchy though. Refactor Input instead of Ctemp
 double GetCurrentTemp()
 {
     updateSensor();
@@ -226,16 +219,12 @@ int SetTunings(String command)                 //Aquired from https://github.com
     return (int)(Kp + Ki + Kd);
 }
 
-//Sets the target temprature(in Degrees) also used as the Setpoint for the PID. Used for Spark.Function "SetSetPt";
-//FUTURE - Allow the addition of time to be added, 0 = no time, 16:00 means go at 16:00 or whatever in UNIX time.
-int SetSetPoint(String args)
+int SetSetPoint(String args)                //Sets the target temperature(in Degrees) also used as the Setpoint for the PID. Used for Spark.Function "SetSetPt";
 {   
-    //To-Do
-    //Error checking - if Input = Args and Active = true then return 1 else return 2? Worthwhile?
-    Setpoint = atof(args.c_str());
+    Setpoint = atof(args.c_str());          //Error checking - if Input = Args and Active = true then return 1 else return 2? Worthwhile?
     TogglePID("ON");
     
-    if(RelayUsable)
+    if(RelayUsable)                         //Doesn't do anything, TogglePID makes relay usable anyway. May be removed - Return TogglePID("ON"); instead.
     {
         return 1;
     }
@@ -246,8 +235,8 @@ int SetSetPoint(String args)
     
 }
 
-//Allows PID to be turned on or off
-int TogglePID(String args)
+                                            //Allows PID to be turned on or off
+int TogglePID(String args)                  //Can't say I particularly like using "ON" or "OFF", string comparison feels flaky.
 {
     if(args == "ON")
     {
@@ -268,7 +257,7 @@ int TogglePID(String args)
     }
 }
 
-int updateSensor() 
+int updateSensor()                          //I wish I could remember where I stole this from.
 {
   uint8_t addr[8];
   unsigned long now = millis();
@@ -306,40 +295,3 @@ int updateSensor()
   sensor.Update(now);
   return 1;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
